@@ -10,16 +10,17 @@ if (isset($_GET['logout'])) {
 requireAdminLogin();
 
 $action = $_GET['action'] ?? 'list';
-$order_id = $_GET['id'] ?? null;
+$order_id = isset($_GET['id']) ? (int) $_GET['id'] : null;
 $message = '';
 $error = '';
 
 // Handle order status update
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $status = $_POST['status'] ?? '';
-    $order_id = $_POST['order_id'] ?? '';
+    $order_id = isset($_POST['order_id']) ? (int) $_POST['order_id'] : 0;
+    $allowed_statuses = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
 
-    if (empty($status) || empty($order_id)) {
+    if (!in_array($status, $allowed_statuses, true) || $order_id <= 0) {
         $error = 'Invalid request';
     } else {
         $stmt = $pdo->prepare('UPDATE orders SET status = ? WHERE id = ?');
@@ -34,7 +35,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Handle WhatsApp notification
 if (isset($_GET['send_whatsapp'])) {
-    $send_id = $_GET['send_whatsapp'];
+    $send_id = (int) $_GET['send_whatsapp'];
+    if ($send_id <= 0) {
+        $error = 'Invalid order ID';
+    } else {
     $stmt = $pdo->prepare('SELECT o.*, p.name as product_name FROM orders o LEFT JOIN products p ON o.product_id = p.id WHERE o.id = ?');
     $stmt->execute([$send_id]);
     $order = $stmt->fetch();
@@ -64,16 +68,21 @@ if (isset($_GET['send_whatsapp'])) {
     } else {
         $error = 'Order not found';
     }
+    }
 }
 
 // Handle delete
 if (isset($_GET['delete'])) {
-    $delete_id = $_GET['delete'];
-    $stmt = $pdo->prepare('DELETE FROM orders WHERE id = ?');
-    if ($stmt->execute([$delete_id])) {
-        $message = 'Order deleted successfully!';
+    $delete_id = (int) $_GET['delete'];
+    if ($delete_id <= 0) {
+        $error = 'Invalid order ID';
     } else {
-        $error = 'Error deleting order';
+        $stmt = $pdo->prepare('DELETE FROM orders WHERE id = ?');
+        if ($stmt->execute([$delete_id])) {
+            $message = 'Order deleted successfully!';
+        } else {
+            $error = 'Error deleting order';
+        }
     }
     $action = 'list';
 }

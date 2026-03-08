@@ -1,6 +1,6 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/includes/auth.php';
@@ -199,7 +199,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $form_type === 'product_details') {
                 $error = 'Invalid product action';
             }
         } catch (Throwable $e) {
-            $error = 'Database error while saving product: ' . $e->getMessage();
+            error_log('Product save error: ' . $e->getMessage());
+            $error = 'Database error while saving product.';
         }
     }
 }
