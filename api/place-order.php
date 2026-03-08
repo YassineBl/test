@@ -9,41 +9,53 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $data = json_decode(file_get_contents('php://input'), true);
+if (!is_array($data)) {
+    echo json_encode(['success' => false, 'message' => 'Invalid JSON payload']);
+    exit;
+}
 
 $customer_name = $data['customer_name'] ?? '';
 $customer_phone = $data['customer_phone'] ?? '';
 $customer_email = $data['customer_email'] ?? '';
-$product_id = $data['product_id'] ?? '';
-$quantity = $data['quantity'] ?? 1;
+$product_id = isset($data['product_id']) ? (int) $data['product_id'] : 0;
+$quantity = isset($data['quantity']) ? (int) $data['quantity'] : 1;
 $product_price = $data['product_price'] ?? 0;
 $notes = $data['notes'] ?? '';
 
 // Validation
-if (empty($customer_name) || empty($customer_phone) || empty($product_id)) {
+if (empty($customer_name) || empty($customer_phone) || $product_id <= 0) {
     echo json_encode(['success' => false, 'message' => 'Missing required fields']);
     exit;
 }
 
-// Verify product exists
-$stmt = $pdo->prepare('SELECT id, stock_quantity, price, name FROM products WHERE id = ? AND is_disabled = 0 AND is_available = 1');
-$stmt->execute([$product_id]);
-$product = $stmt->fetch();
-
-if (!$product) {
-    echo json_encode(['success' => false, 'message' => 'Product not found or unavailable']);
+if ($quantity <= 0) {
+    echo json_encode(['success' => false, 'message' => 'Quantity must be at least 1']);
     exit;
 }
-
-// Check stock
-if ($product['stock_quantity'] < $quantity) {
-    echo json_encode(['success' => false, 'message' => 'Insufficient stock']);
-    exit;
-}
-
-// Calculate total
-$total_price = $product['price'] * $quantity;
 
 try {
+    $pdo->beginTransaction();
+
+    // Verify product exists and lock row to avoid concurrent overselling
+    $stmt = $pdo->prepare('SELECT id, stock_quantity, price, name FROM products WHERE id = ? AND is_disabled = 0 AND is_available = 1 FOR UPDATE');
+    $stmt->execute([$product_id]);
+    $product = $stmt->fetch();
+
+    if (!$product) {
+        $pdo->rollBack();
+        echo json_encode(['success' => false, 'message' => 'Product not found or unavailable']);
+        exit;
+    }
+
+    if ((int) $product['stock_quantity'] < $quantity) {
+        $pdo->rollBack();
+        echo json_encode(['success' => false, 'message' => 'Insufficient stock']);
+        exit;
+    }
+
+    // Calculate total using trusted DB price
+    $total_price = $product['price'] * $quantity;
+
     // Insert order
     $stmt = $pdo->prepare('
         INSERT INTO orders (customer_name, customer_phone, customer_email, product_id, quantity, total_price, notes)
@@ -77,6 +89,8 @@ try {
             $stmt->execute([$order_id]);
         }
 
+        $pdo->commit();
+
         echo json_encode([
             'success' => true,
             'message' => 'Order placed successfully!',
@@ -85,9 +99,14 @@ try {
             'whatsapp_url' => $whatsapp_url
         ]);
     } else {
+        $pdo->rollBack();
         echo json_encode(['success' => false, 'message' => 'Failed to place order']);
     }
 } catch(Exception $e) {
-    echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('Order placement failed: ' . $e->getMessage());
+    echo json_encode(['success' => false, 'message' => 'Database error while placing order']);
 }
 ?>

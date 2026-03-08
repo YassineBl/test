@@ -112,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <h1><i class="fas fa-shield-alt"></i> Admin Login</h1>
             
             <?php if ($error): ?>
-                <div class="error"><?php echo $error; ?></div>
+                <div class="error"><?php echo sanitize($error); ?></div>
             <?php endif; ?>
             
             <div class="form-group">
